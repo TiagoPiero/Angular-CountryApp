@@ -1,17 +1,46 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, catchError, map, of } from 'rxjs';
+import { Observable, catchError, map, of, tap } from 'rxjs';
 
-import { Country } from '../interfaces/country,';
+import { Country } from '../interfaces/country.interface';
+import { CacheStore } from '../interfaces/cache-store.interface';
+import { Region } from '../interfaces/region.type.interface';
 
 @Injectable({providedIn: 'root'})
 export class CountriesService {
 
   private apiUrl: string = 'https://restcountries.com/v3.1'
 
-  constructor(private http: HttpClient) { }
+  public cacheStore: CacheStore = {
+    byCapital: {term: '', countries: []},
+    byCountries: {term: '', countries: []},
+    byRegion: {region: '', countries: []}
+  }
 
-  searchCountryByAlphaCode( code: string): Observable<Country | null> {
+  constructor(private http: HttpClient) {
+    this.loadFromLocalStorage();
+   }
+
+  private saveToLocalStorage(){
+    localStorage.setItem('cacheStore', JSON.stringify (this.cacheStore))
+  }
+
+  private loadFromLocalStorage() {
+
+    if( !localStorage.getItem('cacheStore')) return;
+    this.cacheStore = JSON.parse(localStorage.getItem('cacheStore')!);
+
+  }
+
+  private getCountriesRequest(url: string):Observable<Country[]> {
+    return this.http.get<Country[]>( url )
+      .pipe(
+        catchError( error => of([])),
+        /* delay(2000) */  //*delay para que los resultados no se muestren instantaneamente y demore 2 segundos en dar la respuesta. Pondremos un loading
+      );
+  }
+
+  searchCountryByAlphaCode( code: string ): Observable<Country | null> {
     const url = `${ this.apiUrl }/alpha/${ code }`;
 
     return this.http.get<Country[]>(url)
@@ -24,25 +53,32 @@ export class CountriesService {
   searchCapital(term: string): Observable<Country[]> {
 
   const url = `${ this.apiUrl }/capital/${ term }`
-  return this.http.get<Country[]>(url)
-  .pipe(
-    catchError( error => of([])) //si hay un error (no se encuentra ningun pais) agarra el error y devuelve como observable el arreglo vacio
-  );
+  return this.getCountriesRequest(url)
+    .pipe(
+      tap( countries => this.cacheStore.byCapital = { term, countries}),
+      tap( () => this.saveToLocalStorage() )
+
+      //*Cuando tenemos un observable, puedo disparar operadores de rxjs de nuevo lo que me permite hacer ciertas operaciones cuando la solicitud se realice. El operador tap: cuando venga un nuevo mensaje en el observable, pasa por el tap, lo ejecuta pero no influye en nada del funcionamiento de la emision que esta haciendo el observable.
+    );
   }
 
   searchCountry( term: string): Observable<Country[]> {
     const url = `${ this.apiUrl }/name/${ term }`
-    return this.http.get<Country[]>(url)
-      .pipe(
-        catchError( error => of([]))
-      )
+    return this.getCountriesRequest(url)
+    .pipe(
+      tap( countries => this.cacheStore.byCountries = { term, countries}),
+      tap( () => this.saveToLocalStorage() )
+
+    )
   }
 
-  searchRegion( region: string): Observable<Country[]> {
+  searchRegion( region: Region): Observable<Country[]> {
     const url = `${ this.apiUrl }/region/${ region }`
-    return this.http.get<Country[]>(url)
+    return this.getCountriesRequest(url)
     .pipe(
-      catchError( error => of([]))
+      tap( countries => this.cacheStore.byRegion = { region, countries}),
+      tap( () => this.saveToLocalStorage() )
+
     )
   }
 }
